@@ -19,9 +19,12 @@ RI wiring:
 ```text
 Arduino D10 -> 1 kOhm resistor -> RI plug tip
 Arduino GND ---------------------> RI plug sleeve
+Arduino D10 / RI tip node -> 47k-100k pulldown -> GND
 ```
 
 Do not connect Arduino 5V directly to the RI jack.
+
+Use the weak pulldown to keep the RI line idle while D10 is high-impedance during reset/bootloader, before `setup()` configures the pin as an output and drives it LOW.
 
 The initial implementation drives D10 as a normal push-pull output: actively LOW for idle, actively HIGH for RI pulses. This matches the public Arduino RI examples and is appropriate when the Arduino is the only RI sender connected to the A-9010.
 

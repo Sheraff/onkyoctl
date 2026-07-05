@@ -304,9 +304,10 @@ RI wiring:
 ```text
 Arduino D10 -> 1 kOhm resistor -> RI plug tip
 Arduino GND ---------------------> RI plug sleeve
+Arduino D10 / RI tip node -> 47k-100k pulldown -> GND
 ```
 
-Do not connect Arduino 5V directly to the RI jack. The firmware currently drives D10 as a normal push-pull output, which is appropriate only when the Arduino is the only RI sender on that RI line. Revisit the electrical design before sharing the RI bus with other Onkyo RI devices.
+Do not connect Arduino 5V directly to the RI jack. The weak pulldown keeps the RI line idle while D10 is high-impedance during reset/bootloader, before firmware drives it LOW. The firmware currently drives D10 as a normal push-pull output, which is appropriate only when the Arduino is the only RI sender on that RI line. Revisit the electrical design before sharing the RI bus with other Onkyo RI devices.
 
 ## Known Target Environment
 
