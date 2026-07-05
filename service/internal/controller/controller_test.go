@@ -1,0 +1,227 @@
+package controller
+
+import (
+	"context"
+	"reflect"
+	"testing"
+	"time"
+)
+
+func TestBluetoothConnectSendsWakeWithoutMarkingPlaybackActive(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.BluetoothConnected(); err != nil {
+		t.Fatalf("BluetoothConnected returned error: %v", err)
+	}
+	seq := sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+		t.Fatalf("sequence = %#v, want wake", seq)
+	}
+
+	status := ctl.Status()
+	if !status.BluetoothConnected {
+		t.Fatalf("BluetoothConnected = false, want true")
+	}
+	if status.BluetoothPlaying {
+		t.Fatalf("BluetoothPlaying = true, want false")
+	}
+}
+
+func TestRepeatedPlaybackStartsSendRepeatedWakeSequences(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("AirPlayPlaybackStart returned error: %v", err)
+	}
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("second AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	sender.wait(t)
+}
+
+func TestPowerOffTimerOnlyStartsWhenAllPlaybackSourcesInactive(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("BluetoothPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+
+	if err := ctl.AirPlayInactive(); err != nil {
+		t.Fatalf("AirPlayInactive returned error: %v", err)
+	}
+	if ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = true while Bluetooth is still playing")
+	}
+
+	if err := ctl.BluetoothInactive(); err != nil {
+		t.Fatalf("BluetoothInactive returned error: %v", err)
+	}
+	if !ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = false after all playback inactive")
+	}
+}
+
+func TestPowerOffTimerIsCancelledWhenPlaybackRestarts(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.AirPlayInactive(); err != nil {
+		t.Fatalf("AirPlayInactive returned error: %v", err)
+	}
+	firstTimer := clock.last(t)
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("second AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = true after playback restart")
+	}
+	firstTimer.Fire()
+	sender.assertNoSequence(t)
+}
+
+func TestPowerOffTimerQueuesOffWhenPlaybackRemainsInactive(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("BluetoothPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.BluetoothInactive(); err != nil {
+		t.Fatalf("BluetoothInactive returned error: %v", err)
+	}
+
+	clock.last(t).Fire()
+	seq := sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x0DA"}) {
+		t.Fatalf("sequence = %#v, want off", seq)
+	}
+	if ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = true after timer fired")
+	}
+}
+
+func newTestController(sender *recordingSender, clock *fakeClock) *Controller {
+	return New(Options{
+		Sender: sender,
+
+		WakeCodes: []string{"0x02F"},
+		WakeGapMS: 0,
+
+		PowerOffCodes: []string{"0x0DA"},
+		PowerOffGapMS: 0,
+		PowerOffDelay: time.Minute,
+
+		WakeOnBluetoothConnect: true,
+		WakeOnPlaybackStart:    true,
+
+		AfterFunc: clock.AfterFunc,
+	})
+}
+
+type sentSequence struct {
+	gapMS int
+	codes []string
+}
+
+type recordingSender struct {
+	ch chan sentSequence
+}
+
+func newRecordingSender() *recordingSender {
+	return &recordingSender{ch: make(chan sentSequence, 16)}
+}
+
+func (s *recordingSender) SendSequence(ctx context.Context, gapMS int, codes []string) error {
+	seq := sentSequence{gapMS: gapMS, codes: append([]string(nil), codes...)}
+	select {
+	case s.ch <- seq:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *recordingSender) wait(t *testing.T) sentSequence {
+	t.Helper()
+	select {
+	case seq := <-s.ch:
+		return seq
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for sequence")
+		return sentSequence{}
+	}
+}
+
+func (s *recordingSender) assertNoSequence(t *testing.T) {
+	t.Helper()
+	select {
+	case seq := <-s.ch:
+		t.Fatalf("unexpected sequence: %#v", seq)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+type fakeClock struct {
+	timers []*fakeTimer
+}
+
+func (c *fakeClock) AfterFunc(_ time.Duration, f func()) Timer {
+	timer := &fakeTimer{f: f}
+	c.timers = append(c.timers, timer)
+	return timer
+}
+
+func (c *fakeClock) last(t *testing.T) *fakeTimer {
+	t.Helper()
+	if len(c.timers) == 0 {
+		t.Fatalf("no timers created")
+	}
+	return c.timers[len(c.timers)-1]
+}
+
+type fakeTimer struct {
+	stopped bool
+	f       func()
+}
+
+func (t *fakeTimer) Stop() bool {
+	if t.stopped {
+		return false
+	}
+	t.stopped = true
+	return true
+}
+
+func (t *fakeTimer) Fire() {
+	if t.stopped {
+		return
+	}
+	t.stopped = true
+	t.f()
+}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Onkyo RI controller
+After=bluetooth.service bluealsa.service shairport-sync.service
+Wants=bluetooth.service bluealsa.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/onkyoctl serve --config /etc/onkyoctl/config.toml
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=onkyoctl
+
+[Install]
+WantedBy=multi-user.target
