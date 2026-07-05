@@ -278,9 +278,10 @@ ExecStart=/usr/local/bin/onkyoctl serve --config /etc/onkyoctl/config.toml
 Restart=on-failure
 RestartSec=2
 RuntimeDirectory=onkyoctl
+RuntimeDirectoryMode=0755
 ```
 
-`RuntimeDirectory=onkyoctl` creates `/run/onkyoctl` for the daemon socket.
+`RuntimeDirectory=onkyoctl` creates `/run/onkyoctl` for the daemon socket. The daemon sets the socket mode to `0666` after binding so Shairport Sync and Bluetooth hook users can connect regardless of the service umask.
 
 ## Hardware And Wiring
 

@@ -304,6 +304,7 @@ ExecStart=/usr/local/bin/onkyoctl serve --config /etc/onkyoctl/config.toml
 Restart=on-failure
 RestartSec=2
 RuntimeDirectory=onkyoctl
+RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target

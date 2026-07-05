@@ -1,6 +1,10 @@
 package socketapi
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +56,54 @@ func TestDispatchStatus(t *testing.T) {
 	if !resp.Status.AirPlayPlaying {
 		t.Fatalf("AirPlayPlaying = false, want true")
 	}
+}
+
+func TestServeSetsSocketMode(t *testing.T) {
+	ctl := controller.New(controller.Options{PowerOffDelay: time.Minute})
+	defer ctl.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	socketPath := filepath.Join(t.TempDir(), "onkyoctl.sock")
+	server := NewServer(socketPath, ctl, nil)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("Serve returned error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("Serve did not stop")
+		}
+	})
+
+	var lastMode os.FileMode
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(socketPath)
+		if err == nil {
+			lastMode = info.Mode().Perm()
+			if lastMode == socketMode {
+				return
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stat socket: %v", err)
+		}
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("Serve returned before socket was ready: %v", err)
+			}
+			t.Fatal("Serve returned before socket was ready")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Fatalf("socket mode = %#o, want %#o", lastMode, socketMode)
 }
 
 func TestFormatStatusHuman(t *testing.T) {

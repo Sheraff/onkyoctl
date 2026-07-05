@@ -28,6 +28,8 @@ type Response struct {
 	Status *controller.Status `json:"status,omitempty"`
 }
 
+const socketMode os.FileMode = 0o666
+
 type Server struct {
 	path       string
 	controller *controller.Controller
@@ -51,6 +53,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	defer listener.Close()
 	defer os.Remove(s.path)
+	if err := os.Chmod(s.path, socketMode); err != nil {
+		return err
+	}
 
 	s.logger.Printf("socket listening: %s", s.path)
 	go func() {
