@@ -16,8 +16,8 @@ wake_on_playback_start = false
 	if cfg.SerialBaud != 115200 {
 		t.Fatalf("SerialBaud = %d, want default 115200", cfg.SerialBaud)
 	}
-	if cfg.SerialOpenDelayMS != 1500 {
-		t.Fatalf("SerialOpenDelayMS = %d, want default 1500", cfg.SerialOpenDelayMS)
+	if cfg.SerialOpenDelayMS != 2500 {
+		t.Fatalf("SerialOpenDelayMS = %d, want default 2500", cfg.SerialOpenDelayMS)
 	}
 	if cfg.WakeCodes[0] != "0x0D9" || cfg.WakeCodes[1] != "0x020" {
 		t.Fatalf("WakeCodes = %#v, want canonical hex", cfg.WakeCodes)
@@ -50,5 +50,16 @@ wake_gap_ms = 0
 `))
 	if err == nil {
 		t.Fatalf("Parse succeeded, want multi-code gap error")
+	}
+}
+
+func TestParseRejectsDisabledSerialReadyWait(t *testing.T) {
+	_, err := Parse([]byte(`
+socket_path = "/tmp/onkyoctl.sock"
+serial_device = "/dev/ttyACM0"
+serial_open_delay_ms = 0
+`))
+	if err == nil {
+		t.Fatalf("Parse succeeded, want serial_open_delay_ms error")
 	}
 }

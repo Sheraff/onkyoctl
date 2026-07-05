@@ -91,7 +91,7 @@ func serve(configPath string) error {
 	defer stop()
 
 	var wg sync.WaitGroup
-	if cfg.BluetoothUseTransportState || cfg.BluetoothWakeOnConnected {
+	if cfg.BluetoothUseTransportState || cfg.WakeOnBluetoothConnect {
 		watcher := &bluetooth.Watcher{
 			Handler:           ctl,
 			UseTransportState: cfg.BluetoothUseTransportState,

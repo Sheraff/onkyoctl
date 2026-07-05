@@ -58,10 +58,11 @@ func TestClientSendSequenceWaitsForOK(t *testing.T) {
 }
 
 func TestClientReturnsArduinoError(t *testing.T) {
-	fake := newFakePort("ERR BAD_CODE 0x1234\n")
+	fake := newFakePort("READY onkyo-ri seq-v1 safe=0\n", "ERR BAD_CODE 0x1234\n")
 	client := New(Options{
-		Device: "/dev/fake",
-		Baud:   115200,
+		Device:    "/dev/fake",
+		Baud:      115200,
+		OpenDelay: 50 * time.Millisecond,
 		Opener: func(string, int) (Port, error) {
 			return fake, nil
 		},
@@ -75,10 +76,11 @@ func TestClientReturnsArduinoError(t *testing.T) {
 }
 
 func TestClientTimesOutWaitingForResponse(t *testing.T) {
-	fake := newFakePort()
+	fake := newFakePort("READY onkyo-ri seq-v1 safe=0\n")
 	client := New(Options{
-		Device: "/dev/fake",
-		Baud:   115200,
+		Device:    "/dev/fake",
+		Baud:      115200,
+		OpenDelay: 50 * time.Millisecond,
 		Opener: func(string, int) (Port, error) {
 			return fake, nil
 		},
@@ -88,6 +90,27 @@ func TestClientTimesOutWaitingForResponse(t *testing.T) {
 	err := client.SendSequence(context.Background(), 0, []string{"0x02F"})
 	if err == nil || !strings.Contains(err.Error(), ErrTimeout.Error()) {
 		t.Fatalf("err = %v, want timeout", err)
+	}
+}
+
+func TestClientRequiresReadyBeforeSending(t *testing.T) {
+	fake := newFakePort()
+	client := New(Options{
+		Device:    "/dev/fake",
+		Baud:      115200,
+		OpenDelay: 15 * time.Millisecond,
+		Opener: func(string, int) (Port, error) {
+			return fake, nil
+		},
+		ResponseTimeout: func(int, int) time.Duration { return 15 * time.Millisecond },
+	})
+
+	err := client.SendSequence(context.Background(), 0, []string{"0x02F"})
+	if err == nil || !strings.Contains(err.Error(), ErrReadyTimeout.Error()) {
+		t.Fatalf("err = %v, want READY timeout", err)
+	}
+	if got := fake.Written(); got != "" {
+		t.Fatalf("written = %q, want no command before READY", got)
 	}
 }
 

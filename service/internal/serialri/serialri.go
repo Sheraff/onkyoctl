@@ -20,7 +20,10 @@ const (
 	MaxGapMS         = 10000
 )
 
-var ErrTimeout = errors.New("serial response timeout")
+var (
+	ErrTimeout      = errors.New("serial response timeout")
+	ErrReadyTimeout = errors.New("serial READY timeout")
+)
 
 type Port interface {
 	io.ReadWriteCloser
@@ -211,11 +214,13 @@ func (c *Client) ensureOpen(ctx context.Context) error {
 	c.port = port
 	c.logger.Printf("serial opened: %s at %d baud", c.device, c.baud)
 
-	if c.openDelay > 0 {
-		if err := c.waitForReady(ctx, c.openDelay); err != nil {
-			c.closeLocked()
-			return err
-		}
+	if c.openDelay <= 0 {
+		c.closeLocked()
+		return errors.New("serial READY wait timeout must be positive")
+	}
+	if err := c.waitForReady(ctx, c.openDelay); err != nil {
+		c.closeLocked()
+		return err
 	}
 	return nil
 }
@@ -225,8 +230,7 @@ func (c *Client) waitForReady(ctx context.Context, timeout time.Duration) error 
 	for time.Now().Before(deadline) {
 		line, err := c.readLine(ctx, time.Until(deadline))
 		if errors.Is(err, ErrTimeout) {
-			c.logger.Printf("serial startup: no READY line within %s; continuing", timeout)
-			return nil
+			return fmt.Errorf("%w after %s", ErrReadyTimeout, timeout)
 		}
 		if err != nil {
 			return err
@@ -239,8 +243,7 @@ func (c *Client) waitForReady(ctx context.Context, timeout time.Duration) error 
 			return nil
 		}
 	}
-	c.logger.Printf("serial startup: no READY line within %s; continuing", timeout)
-	return nil
+	return fmt.Errorf("%w after %s", ErrReadyTimeout, timeout)
 }
 
 func (c *Client) readResponse(ctx context.Context, timeout time.Duration) (string, error) {

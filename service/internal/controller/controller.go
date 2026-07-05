@@ -94,7 +94,7 @@ func OptionsFromConfig(cfg config.Config, sender SequenceSender, logger *log.Log
 		PowerOffGapMS: cfg.PowerOffGapMS,
 		PowerOffDelay: cfg.PowerOffDelay(),
 
-		WakeOnBluetoothConnect: cfg.WakeOnBluetoothConnect && cfg.BluetoothWakeOnConnected,
+		WakeOnBluetoothConnect: cfg.WakeOnBluetoothConnect,
 		WakeOnPlaybackStart:    cfg.WakeOnPlaybackStart,
 	}
 }

@@ -32,7 +32,6 @@ type Config struct {
 	WakeOnPlaybackStart    bool `toml:"wake_on_playback_start"`
 
 	BluetoothUseTransportState bool `toml:"bluetooth_use_transport_state"`
-	BluetoothWakeOnConnected   bool `toml:"bluetooth_wake_on_connected"`
 }
 
 func Default() Config {
@@ -41,7 +40,7 @@ func Default() Config {
 
 		SerialDevice:      "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0",
 		SerialBaud:        115200,
-		SerialOpenDelayMS: 1500,
+		SerialOpenDelayMS: 2500,
 
 		WakeCodes: []string{"0x02F"},
 		WakeGapMS: 1000,
@@ -55,7 +54,6 @@ func Default() Config {
 		WakeOnPlaybackStart:    true,
 
 		BluetoothUseTransportState: true,
-		BluetoothWakeOnConnected:   true,
 	}
 }
 
@@ -91,8 +89,8 @@ func (c *Config) Validate() error {
 	if c.SerialBaud <= 0 {
 		return fmt.Errorf("serial_baud must be positive")
 	}
-	if c.SerialOpenDelayMS < 0 {
-		return fmt.Errorf("serial_open_delay_ms must not be negative")
+	if c.SerialOpenDelayMS <= 0 {
+		return fmt.Errorf("serial_open_delay_ms must be positive because serial startup requires READY")
 	}
 	if c.PowerOffDelaySeconds < 0 {
 		return fmt.Errorf("power_off_delay_seconds must not be negative")

@@ -63,7 +63,7 @@ socket_path = "/run/onkyoctl/onkyoctl.sock"
 
 serial_device = "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0"
 serial_baud = 115200
-serial_open_delay_ms = 1500
+serial_open_delay_ms = 2500
 
 wake_codes = ["0x02F"]
 wake_gap_ms = 1000
@@ -77,7 +77,6 @@ wake_on_bluetooth_connect = true
 wake_on_playback_start = true
 
 bluetooth_use_transport_state = true
-bluetooth_wake_on_connected = true
 ```
 
 If real A-9010 testing shows that `0x02F` does not select the desired input, switch to an explicit sequence:
@@ -259,7 +258,7 @@ Add verbose first-run logging for observed Bluetooth paths and state transitions
 
 - Opens the configured Arduino serial device.
 - Keeps the serial port open to avoid repeated Arduino resets.
-- Waits `serial_open_delay_ms` after opening.
+- Waits up to `serial_open_delay_ms` after opening for the Arduino `READY` line before sending any command.
 - Sends `SEQ` messages.
 - Waits for `OK` or `ERR` response before sending the next sequence.
 - Logs the echoed `OK SEQ ...` response and can optionally verify it against the requested sequence.
