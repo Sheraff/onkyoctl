@@ -63,7 +63,7 @@ socket_path = "/run/onkyoctl/onkyoctl.sock"
 
 serial_device = "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0"
 serial_baud = 115200
-serial_open_delay_ms = 2500
+serial_open_delay_ms = 7000
 
 wake_codes = ["0x02F"]
 wake_gap_ms = 1000

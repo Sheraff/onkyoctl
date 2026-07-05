@@ -16,8 +16,8 @@ wake_on_playback_start = false
 	if cfg.SerialBaud != 115200 {
 		t.Fatalf("SerialBaud = %d, want default 115200", cfg.SerialBaud)
 	}
-	if cfg.SerialOpenDelayMS != 2500 {
-		t.Fatalf("SerialOpenDelayMS = %d, want default 2500", cfg.SerialOpenDelayMS)
+	if cfg.SerialOpenDelayMS != 7000 {
+		t.Fatalf("SerialOpenDelayMS = %d, want default 7000", cfg.SerialOpenDelayMS)
 	}
 	if cfg.WakeCodes[0] != "0x0D9" || cfg.WakeCodes[1] != "0x020" {
 		t.Fatalf("WakeCodes = %#v, want canonical hex", cfg.WakeCodes)

@@ -40,7 +40,7 @@ func Default() Config {
 
 		SerialDevice:      "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0",
 		SerialBaud:        115200,
-		SerialOpenDelayMS: 2500,
+		SerialOpenDelayMS: 7000,
 
 		WakeCodes: []string{"0x02F"},
 		WakeGapMS: 1000,
