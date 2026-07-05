@@ -95,7 +95,7 @@ The Debian service sends generic RI code sequences. The Arduino owns RI waveform
 Use newline-terminated ASCII messages:
 
 ```text
-SEQ <gap_ms> <code> [<code>...]\n
+SEQ <delay_ms> <code> [<code>...]\n
 ```
 
 Examples:
@@ -109,7 +109,7 @@ SEQ 250 0x0DA\n
 Rules:
 
 - `SEQ` sends one or more RI codes.
-- `gap_ms` is the delay between RI codes, not before the first code and not after the last code.
+- `delay_ms` is the delay between RI codes, not before the first code and not after the last code.
 - Codes are 12-bit RI command values, preferably formatted as `0xNNN`.
 - The Arduino validates the entire sequence before emitting any RI waveform.
 - For invalid input, the Arduino replies immediately with `ERR ...` and emits no RI waveform.
@@ -122,9 +122,9 @@ Expected Arduino responses:
 OK SEQ 0 0x02F
 OK SEQ 1000 0x0D9 0x020
 ERR BAD_CODE 0x1234
-ERR BAD_GAP
+ERR BAD_DELAY
 ERR TOO_MANY_CODES
-ERR UNKNOWN_COMMAND
+ERR BAD_COMMAND
 ```
 
 The service must serialize access to the serial port. Only one `SEQ` request may be in flight at a time. It should wait for `OK` or `ERR` before sending another sequence. A successful `OK` means the Arduino accepted and emitted the RI sequence; it does not mean the amplifier received or acted on it.

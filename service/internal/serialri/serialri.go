@@ -16,13 +16,17 @@ import (
 )
 
 const (
+	readyLineSafeOff = "READY onkyo-ri seq-v1 safe=0"
+	readyLineSafeOn  = "READY onkyo-ri seq-v1 safe=1"
+
 	MaxSequenceCodes = 8
 	MaxGapMS         = 10000
 )
 
 var (
-	ErrTimeout      = errors.New("serial response timeout")
-	ErrReadyTimeout = errors.New("serial READY timeout")
+	ErrTimeout          = errors.New("serial response timeout")
+	ErrReadyTimeout     = errors.New("serial READY timeout")
+	ErrProtocolMismatch = errors.New("serial protocol mismatch")
 )
 
 type Port interface {
@@ -239,8 +243,11 @@ func (c *Client) waitForReady(ctx context.Context, timeout time.Duration) error 
 			continue
 		}
 		c.logger.Printf("serial startup: %s", line)
-		if strings.HasPrefix(line, "READY") {
+		if isSupportedReadyLine(line) {
 			return nil
+		}
+		if strings.HasPrefix(line, "READY") {
+			return fmt.Errorf("%w: unsupported READY line %q", ErrProtocolMismatch, line)
 		}
 	}
 	return fmt.Errorf("%w after %s", ErrReadyTimeout, timeout)
@@ -256,8 +263,14 @@ func (c *Client) readResponse(ctx context.Context, timeout time.Duration) (strin
 		if err != nil {
 			return "", err
 		}
-		if line == "" || strings.HasPrefix(line, "READY") {
+		if line == "" {
 			continue
+		}
+		if isSupportedReadyLine(line) {
+			continue
+		}
+		if strings.HasPrefix(line, "READY") {
+			return "", fmt.Errorf("%w: unsupported READY line %q", ErrProtocolMismatch, line)
 		}
 		if strings.HasPrefix(line, "OK ") || strings.HasPrefix(line, "ERR ") {
 			return line, nil
@@ -265,6 +278,10 @@ func (c *Client) readResponse(ctx context.Context, timeout time.Duration) (strin
 		c.logger.Printf("serial ignored line while waiting for response: %s", line)
 	}
 	return "", fmt.Errorf("%w after %s", ErrTimeout, timeout)
+}
+
+func isSupportedReadyLine(line string) bool {
+	return line == readyLineSafeOff || line == readyLineSafeOn
 }
 
 func (c *Client) readLine(ctx context.Context, timeout time.Duration) (string, error) {

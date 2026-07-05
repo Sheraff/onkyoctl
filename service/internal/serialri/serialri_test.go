@@ -114,6 +114,27 @@ func TestClientRequiresReadyBeforeSending(t *testing.T) {
 	}
 }
 
+func TestClientRejectsUnsupportedReadyProtocol(t *testing.T) {
+	fake := newFakePort("READY onkyo-ri seq-v2 safe=0\n")
+	client := New(Options{
+		Device:    "/dev/fake",
+		Baud:      115200,
+		OpenDelay: 50 * time.Millisecond,
+		Opener: func(string, int) (Port, error) {
+			return fake, nil
+		},
+		ResponseTimeout: func(int, int) time.Duration { return 15 * time.Millisecond },
+	})
+
+	err := client.SendSequence(context.Background(), 0, []string{"0x02F"})
+	if err == nil || !strings.Contains(err.Error(), ErrProtocolMismatch.Error()) {
+		t.Fatalf("err = %v, want protocol mismatch", err)
+	}
+	if got := fake.Written(); got != "" {
+		t.Fatalf("written = %q, want no command before supported READY", got)
+	}
+}
+
 type fakePort struct {
 	readCh  chan byte
 	timeout time.Duration
