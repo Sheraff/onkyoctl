@@ -200,6 +200,7 @@ func (c *Controller) BluetoothConnected() error {
 	c.bluetoothConnected = true
 	c.cancelPowerOffTimerLocked()
 	c.logger.Printf("controller: Bluetooth connected")
+	c.startPowerOffTimerIfInactiveLocked()
 	if c.wakeOnBluetoothConnect {
 		return c.enqueueLocked("wake", c.wakeGapMS, c.wakeCodes)
 	}

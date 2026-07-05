@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestBluetoothConnectSendsWakeWithoutMarkingPlaybackActive(t *testing.T) {
+func TestBluetoothConnectSendsWakeAndStartsPowerOffTimerWithoutMarkingPlaybackActive(t *testing.T) {
 	sender := newRecordingSender()
 	clock := &fakeClock{}
 	ctl := newTestController(sender, clock)
@@ -27,6 +27,15 @@ func TestBluetoothConnectSendsWakeWithoutMarkingPlaybackActive(t *testing.T) {
 	}
 	if status.BluetoothPlaying {
 		t.Fatalf("BluetoothPlaying = true, want false")
+	}
+	if !status.PowerOffPending {
+		t.Fatalf("PowerOffPending = false after Bluetooth connected without playback")
+	}
+
+	clock.last(t).Fire()
+	seq = sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x0DA"}) {
+		t.Fatalf("sequence = %#v, want off", seq)
 	}
 }
 
@@ -128,7 +137,7 @@ func TestPowerOffTimerIsCancelledWhenManualWakeRequested(t *testing.T) {
 	sender.assertNoSequence(t)
 }
 
-func TestPowerOffTimerIsCancelledWhenBluetoothConnects(t *testing.T) {
+func TestPowerOffTimerIsReplacedWhenBluetoothConnectsWithoutPlayback(t *testing.T) {
 	sender := newRecordingSender()
 	clock := &fakeClock{}
 	ctl := newTestController(sender, clock)
@@ -147,11 +156,21 @@ func TestPowerOffTimerIsCancelledWhenBluetoothConnects(t *testing.T) {
 		t.Fatalf("BluetoothConnected returned error: %v", err)
 	}
 	sender.wait(t)
-	if ctl.Status().PowerOffPending {
-		t.Fatalf("PowerOffPending = true after Bluetooth connected")
+	if !ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = false after Bluetooth connected without playback")
 	}
 	firstTimer.Fire()
 	sender.assertNoSequence(t)
+
+	secondTimer := clock.last(t)
+	if secondTimer == firstTimer {
+		t.Fatalf("BluetoothConnected reused existing power-off timer")
+	}
+	secondTimer.Fire()
+	seq := sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x0DA"}) {
+		t.Fatalf("sequence = %#v, want off", seq)
+	}
 }
 
 func TestBluetoothPlaybackStartDoesNotSendDuplicateWakeWhileAlreadyPlaying(t *testing.T) {
