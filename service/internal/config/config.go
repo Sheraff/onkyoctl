@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,7 +68,9 @@ func Load(path string) (Config, error) {
 
 func Parse(data []byte) (Config, error) {
 	cfg := Default()
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	decoder := toml.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {

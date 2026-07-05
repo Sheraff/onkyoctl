@@ -63,3 +63,14 @@ serial_open_delay_ms = 0
 		t.Fatalf("Parse succeeded, want serial_open_delay_ms error")
 	}
 }
+
+func TestParseRejectsUnknownField(t *testing.T) {
+	_, err := Parse([]byte(`
+socket_path = "/tmp/onkyoctl.sock"
+serial_device = "/dev/ttyACM0"
+serial_open_delay = 7000
+`))
+	if err == nil {
+		t.Fatalf("Parse succeeded, want unknown field error")
+	}
+}
