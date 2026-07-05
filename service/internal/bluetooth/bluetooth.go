@@ -12,8 +12,11 @@ import (
 const (
 	DeviceInterface         = "org.bluez.Device1"
 	MediaTransportInterface = "org.bluez.MediaTransport1"
+	GetManagedObjects       = "org.freedesktop.DBus.ObjectManager.GetManagedObjects"
 	PropertiesChangedSignal = "org.freedesktop.DBus.Properties.PropertiesChanged"
 )
+
+type managedObjects map[dbus.ObjectPath]map[string]map[string]dbus.Variant
 
 type Handler interface {
 	BluetoothConnected() error
@@ -55,14 +58,18 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 	defer conn.Close()
 
+	signals := make(chan *dbus.Signal, 32)
+	conn.Signal(signals)
+	defer conn.RemoveSignal(signals)
+
 	match := "type='signal',sender='org.bluez',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'"
 	if call := conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, match); call.Err != nil {
 		return fmt.Errorf("subscribe BlueZ property changes: %w", call.Err)
 	}
 
-	signals := make(chan *dbus.Signal, 32)
-	conn.Signal(signals)
-	defer conn.RemoveSignal(signals)
+	if err := w.seedState(logger, conn); err != nil {
+		logger.Printf("bluetooth: seed state failed: %v", err)
+	}
 
 	logger.Printf("bluetooth: watching BlueZ property changes")
 	for {
@@ -76,6 +83,59 @@ func (w *Watcher) Run(ctx context.Context) error {
 			w.handleSignal(logger, signal)
 		}
 	}
+}
+
+func (w *Watcher) seedState(logger *log.Logger, conn *dbus.Conn) error {
+	var objects managedObjects
+	obj := conn.Object("org.bluez", dbus.ObjectPath("/"))
+	if err := obj.Call(GetManagedObjects, 0).Store(&objects); err != nil {
+		return fmt.Errorf("get BlueZ managed objects: %w", err)
+	}
+
+	for _, event := range w.managedObjectEvents(objects) {
+		logger.Printf("bluetooth: initial path=%s event=%s state=%s", event.Path, event.Kind, event.State)
+		if err := w.dispatch(event); err != nil {
+			logger.Printf("bluetooth: dispatch failed: %v", err)
+		}
+	}
+	return nil
+}
+
+func (w *Watcher) managedObjectEvents(objects managedObjects) []Event {
+	var connected *Event
+	var playback *Event
+
+	for path, ifaces := range objects {
+		if props, ok := ifaces[DeviceInterface]; ok {
+			if connectedValue, ok := props["Connected"]; ok {
+				if isConnected, ok := connectedValue.Value().(bool); ok && isConnected {
+					event := Event{Kind: EventDeviceConnected, Path: string(path)}
+					connected = &event
+				}
+			}
+		}
+
+		if !w.UseTransportState {
+			continue
+		}
+		if props, ok := ifaces[MediaTransportInterface]; ok {
+			if stateValue, ok := props["State"]; ok {
+				state, ok := stateValue.Value().(string)
+				if ok && (state == "pending" || state == "active") {
+					event := Event{Kind: EventPlaybackStarted, Path: string(path), State: state}
+					playback = &event
+				}
+			}
+		}
+	}
+
+	if playback != nil {
+		return []Event{*playback}
+	}
+	if connected != nil {
+		return []Event{*connected}
+	}
+	return nil
 }
 
 func (w *Watcher) handleSignal(logger *log.Logger, signal *dbus.Signal) {
