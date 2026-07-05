@@ -194,7 +194,38 @@ func TestPowerOffTimerQueuesOffWhenPlaybackRemainsInactive(t *testing.T) {
 	}
 }
 
-func newTestController(sender *recordingSender, clock *fakeClock) *Controller {
+func TestQueuedAutoOffIsSkippedWhenPlaybackRestartsBeforeSend(t *testing.T) {
+	sender := newBlockingFirstSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("BluetoothPlaybackStart returned error: %v", err)
+	}
+	sender.waitFirstStarted(t)
+
+	if err := ctl.BluetoothInactive(); err != nil {
+		t.Fatalf("BluetoothInactive returned error: %v", err)
+	}
+	clock.last(t).Fire()
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("second BluetoothPlaybackStart returned error: %v", err)
+	}
+
+	sender.releaseFirst()
+	seq := sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+		t.Fatalf("first sequence = %#v, want initial wake", seq)
+	}
+	seq = sender.wait(t)
+	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+		t.Fatalf("second sequence = %#v, want restart wake", seq)
+	}
+	sender.assertNoSequence(t)
+}
+
+func newTestController(sender SequenceSender, clock *fakeClock) *Controller {
 	return New(Options{
 		Sender: sender,
 
@@ -247,6 +278,74 @@ func (s *recordingSender) wait(t *testing.T) sentSequence {
 }
 
 func (s *recordingSender) assertNoSequence(t *testing.T) {
+	t.Helper()
+	select {
+	case seq := <-s.ch:
+		t.Fatalf("unexpected sequence: %#v", seq)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+type blockingFirstSender struct {
+	ch           chan sentSequence
+	firstStarted chan struct{}
+	release      chan struct{}
+	blockFirst   bool
+}
+
+func newBlockingFirstSender() *blockingFirstSender {
+	return &blockingFirstSender{
+		ch:           make(chan sentSequence, 16),
+		firstStarted: make(chan struct{}),
+		release:      make(chan struct{}),
+		blockFirst:   true,
+	}
+}
+
+func (s *blockingFirstSender) SendSequence(ctx context.Context, gapMS int, codes []string) error {
+	if s.blockFirst {
+		s.blockFirst = false
+		close(s.firstStarted)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	seq := sentSequence{gapMS: gapMS, codes: append([]string(nil), codes...)}
+	select {
+	case s.ch <- seq:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *blockingFirstSender) waitFirstStarted(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for first sequence to start")
+	}
+}
+
+func (s *blockingFirstSender) releaseFirst() {
+	close(s.release)
+}
+
+func (s *blockingFirstSender) wait(t *testing.T) sentSequence {
+	t.Helper()
+	select {
+	case seq := <-s.ch:
+		return seq
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for sequence")
+		return sentSequence{}
+	}
+}
+
+func (s *blockingFirstSender) assertNoSequence(t *testing.T) {
 	t.Helper()
 	select {
 	case seq := <-s.ch:

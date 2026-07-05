@@ -77,9 +77,10 @@ type Controller struct {
 }
 
 type sequenceRequest struct {
-	name  string
-	gapMS int
-	codes []string
+	name                 string
+	gapMS                int
+	codes                []string
+	skipIfPlaybackActive bool
 }
 
 func OptionsFromConfig(cfg config.Config, sender SequenceSender, logger *log.Logger) Options {
@@ -307,19 +308,33 @@ func (c *Controller) powerOffTimerExpired() {
 	}
 	c.powerOffPending = false
 	c.logger.Printf("controller: power-off timer expired; queuing off")
-	if err := c.enqueueLocked("off", c.powerOffGapMS, c.powerOffCodes); err != nil {
+	if err := c.enqueueAutoOffLocked(); err != nil {
 		c.logger.Printf("controller: queue off failed: %v", err)
 	}
 }
 
-func (c *Controller) enqueueLocked(name string, gapMS int, codes []string) error {
-	if len(codes) == 0 {
-		return fmt.Errorf("%s sequence has no RI codes", name)
+func (c *Controller) enqueueAutoOffLocked() error {
+	req := sequenceRequest{
+		name:                 "off",
+		gapMS:                c.powerOffGapMS,
+		codes:                append([]string(nil), c.powerOffCodes...),
+		skipIfPlaybackActive: true,
 	}
+	return c.enqueueRequestLocked(req)
+}
+
+func (c *Controller) enqueueLocked(name string, gapMS int, codes []string) error {
 	req := sequenceRequest{name: name, gapMS: gapMS, codes: append([]string(nil), codes...)}
+	return c.enqueueRequestLocked(req)
+}
+
+func (c *Controller) enqueueRequestLocked(req sequenceRequest) error {
+	if len(req.codes) == 0 {
+		return fmt.Errorf("%s sequence has no RI codes", req.name)
+	}
 	select {
 	case c.queue <- req:
-		c.logger.Printf("controller: queued %s sequence", name)
+		c.logger.Printf("controller: queued %s sequence", req.name)
 		return nil
 	case <-c.ctx.Done():
 		return ErrClosed
@@ -335,12 +350,22 @@ func (c *Controller) worker() {
 		case <-c.ctx.Done():
 			return
 		case req := <-c.queue:
+			if req.skipIfPlaybackActive && c.playbackActive() {
+				c.logger.Printf("controller: skipping queued %s sequence because playback is active", req.name)
+				continue
+			}
 			c.logger.Printf("controller: sending %s sequence", req.name)
 			if err := c.sender.SendSequence(c.ctx, req.gapMS, req.codes); err != nil {
 				c.logger.Printf("controller: %s sequence failed: %v", req.name, err)
 			}
 		}
 	}
+}
+
+func (c *Controller) playbackActive() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.airPlayPlaying || c.bluetoothPlaying
 }
 
 type noopSender struct{}
