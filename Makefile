@@ -1,4 +1,6 @@
 ARDUINO_FQBN ?= arduino:avr:nano
+ARDUINO_OUTPUT_DIR ?= dist/controller
+GO_OUTPUT_DIR ?= dist/service
 
 .PHONY: test build check test-go build-go build-controller fmt vet
 
@@ -12,7 +14,8 @@ test-go:
 	cd service && go test ./...
 
 build-go:
-	cd service && go build ./cmd/onkyoctl
+	mkdir -p $(GO_OUTPUT_DIR)
+	cd service && go build -o ../$(GO_OUTPUT_DIR)/onkyoctl ./cmd/onkyoctl
 
 fmt:
 	cd service && go fmt ./...
@@ -21,4 +24,4 @@ vet:
 	cd service && go vet ./...
 
 build-controller:
-	arduino-cli compile --fqbn $(ARDUINO_FQBN) controller
+	arduino-cli compile --fqbn $(ARDUINO_FQBN) --output-dir $(ARDUINO_OUTPUT_DIR) controller
