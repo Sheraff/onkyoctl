@@ -197,6 +197,7 @@ func (c *Controller) BluetoothConnected() error {
 		return ErrClosed
 	}
 	c.bluetoothConnected = true
+	c.cancelPowerOffTimerLocked()
 	c.logger.Printf("controller: Bluetooth connected")
 	if c.wakeOnBluetoothConnect {
 		return c.enqueueLocked("wake", c.wakeGapMS, c.wakeCodes)
@@ -223,11 +224,12 @@ func (c *Controller) BluetoothPlaybackStart() error {
 	if c.closed {
 		return ErrClosed
 	}
+	wasPlaying := c.bluetoothPlaying
 	c.bluetoothConnected = true
 	c.bluetoothPlaying = true
 	c.cancelPowerOffTimerLocked()
 	c.logger.Printf("controller: Bluetooth playback started")
-	if c.wakeOnPlaybackStart {
+	if c.wakeOnPlaybackStart && !wasPlaying {
 		return c.enqueueLocked("wake", c.wakeGapMS, c.wakeCodes)
 	}
 	return nil
@@ -251,6 +253,7 @@ func (c *Controller) Wake() error {
 	if c.closed {
 		return ErrClosed
 	}
+	c.cancelPowerOffTimerLocked()
 	c.logger.Printf("controller: manual wake requested")
 	return c.enqueueLocked("wake", c.wakeGapMS, c.wakeCodes)
 }

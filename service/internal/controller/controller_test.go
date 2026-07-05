@@ -102,6 +102,74 @@ func TestPowerOffTimerIsCancelledWhenPlaybackRestarts(t *testing.T) {
 	sender.assertNoSequence(t)
 }
 
+func TestPowerOffTimerIsCancelledWhenManualWakeRequested(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.AirPlayInactive(); err != nil {
+		t.Fatalf("AirPlayInactive returned error: %v", err)
+	}
+	firstTimer := clock.last(t)
+
+	if err := ctl.Wake(); err != nil {
+		t.Fatalf("Wake returned error: %v", err)
+	}
+	sender.wait(t)
+	if ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = true after manual wake")
+	}
+	firstTimer.Fire()
+	sender.assertNoSequence(t)
+}
+
+func TestPowerOffTimerIsCancelledWhenBluetoothConnects(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.AirPlayPlaybackStart(); err != nil {
+		t.Fatalf("AirPlayPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.AirPlayInactive(); err != nil {
+		t.Fatalf("AirPlayInactive returned error: %v", err)
+	}
+	firstTimer := clock.last(t)
+
+	if err := ctl.BluetoothConnected(); err != nil {
+		t.Fatalf("BluetoothConnected returned error: %v", err)
+	}
+	sender.wait(t)
+	if ctl.Status().PowerOffPending {
+		t.Fatalf("PowerOffPending = true after Bluetooth connected")
+	}
+	firstTimer.Fire()
+	sender.assertNoSequence(t)
+}
+
+func TestBluetoothPlaybackStartDoesNotSendDuplicateWakeWhileAlreadyPlaying(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("BluetoothPlaybackStart returned error: %v", err)
+	}
+	sender.wait(t)
+	if err := ctl.BluetoothPlaybackStart(); err != nil {
+		t.Fatalf("second BluetoothPlaybackStart returned error: %v", err)
+	}
+	sender.assertNoSequence(t)
+}
+
 func TestPowerOffTimerQueuesOffWhenPlaybackRemainsInactive(t *testing.T) {
 	sender := newRecordingSender()
 	clock := &fakeClock{}
