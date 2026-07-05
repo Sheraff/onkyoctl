@@ -231,8 +231,18 @@ Retry behavior stays on the Debian service. The Arduino sends each accepted sequ
 Expected firmware location:
 
 ```text
-controller/onkyo_ri_serial/onkyo_ri_serial.ino
+controller/controller.ino
 ```
+
+The `controller/` directory is the Arduino sketch directory. The primary `.ino` file is named `controller.ino` to match the sketch directory name, which keeps the layout compatible with Arduino IDE and `arduino-cli`.
+
+Compile from the repository root with:
+
+```bash
+arduino-cli compile --fqbn arduino:avr:nano controller
+```
+
+Documentation files such as `controller/ARDUINO_FIRMWARE_PLAN.md` may live in the same directory. Avoid adding unrelated extra `.ino`, `.c`, or `.cpp` files there because Arduino tooling treats those as part of the sketch build.
 
 Implementation notes:
 
