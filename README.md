@@ -108,6 +108,9 @@ onkyoctl bluetooth playback-start
 onkyoctl bluetooth inactive
 onkyoctl wake
 onkyoctl off
+onkyoctl volume up [steps]
+onkyoctl volume down [steps]
+onkyoctl volume +N|-N
 onkyoctl status
 ```
 
@@ -197,6 +200,11 @@ wake_gap_ms = 200
 power_off_codes = ["0x0DA"]
 power_off_gap_ms = 250
 
+volume_up_code = "0x002"
+volume_down_code = "0x003"
+volume_step_gap_ms = 50
+max_volume_steps = 40
+
 power_off_delay_seconds = 120
 
 wake_on_bluetooth_connect = true
@@ -213,6 +221,7 @@ Important policy decisions:
 - Power-off is delayed until both AirPlay and Bluetooth playback are inactive.
 - Automation should use discrete/idempotent RI codes, not the power toggle `0x004`.
 - Actual A-9010 testing showed that `0x02F` turns the amplifier on but does not select Line 1, so the default wake sequence is `wake_codes = ["0x0D9", "0x020"]` with `wake_gap_ms = 200`.
+- Volume commands are relative only. `onkyoctl volume down 20` is chunked by the daemon into firmware-safe `SEQ` requests; there is no absolute volume state or set-volume command.
 
 Tracked service state:
 
@@ -354,6 +363,9 @@ onkyoctl serve --config /etc/onkyoctl/config.toml
 onkyoctl status
 onkyoctl wake
 onkyoctl off
+onkyoctl volume down
+onkyoctl volume up 5
+onkyoctl volume -5
 ```
 
 ## Flash, Install, And Update
@@ -465,10 +477,28 @@ wake_gap_ms = 200
 power_off_codes = ["0x0DA"]
 power_off_gap_ms = 250
 
+volume_up_code = "0x002"
+volume_down_code = "0x003"
+volume_step_gap_ms = 50
+max_volume_steps = 40
+
 wake_on_bluetooth_connect = true
 wake_on_playback_start = true
 bluetooth_use_transport_state = true
 ```
+
+Volume command examples:
+
+```bash
+onkyoctl volume up
+onkyoctl volume down
+onkyoctl volume up 5
+onkyoctl volume down 20
+onkyoctl volume +5
+onkyoctl volume -5
+```
+
+`volume_step_gap_ms` controls the delay between repeated RI volume codes inside each firmware sequence. `max_volume_steps` is the daemon-side safety cap for a single CLI request.
 
 ### Shairport Sync Integration
 

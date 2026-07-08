@@ -43,6 +43,9 @@ onkyoctl bluetooth playback-start
 onkyoctl bluetooth inactive
 onkyoctl wake
 onkyoctl off
+onkyoctl volume up [steps]
+onkyoctl volume down [steps]
+onkyoctl volume +N|-N
 onkyoctl status
 ```
 
@@ -71,6 +74,11 @@ wake_gap_ms = 200
 power_off_codes = ["0x0DA"]
 power_off_gap_ms = 250
 
+volume_up_code = "0x002"
+volume_down_code = "0x003"
+volume_step_gap_ms = 50
+max_volume_steps = 40
+
 power_off_delay_seconds = 120
 
 wake_on_bluetooth_connect = true
@@ -87,6 +95,8 @@ wake_gap_ms = 200
 ```
 
 The key rule is that configured wake codes must be discrete or idempotent. Do not use `0x004` for automation because it is a power toggle.
+
+Volume control is relative only. The daemon exposes step commands using `0x002` for up and `0x003` for down, capped by `max_volume_steps`, and chunks large requests into firmware-safe `SEQ` requests.
 
 ## Arduino Serial Protocol
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"onkyoctl/service/internal/config"
+	"onkyoctl/service/internal/serialri"
 )
 
 var ErrClosed = errors.New("controller is closed")
@@ -28,6 +29,11 @@ type Options struct {
 	PowerOffCodes []string
 	PowerOffGapMS int
 	PowerOffDelay time.Duration
+
+	VolumeUpCode    string
+	VolumeDownCode  string
+	VolumeStepGapMS int
+	MaxVolumeSteps  int
 
 	WakeOnBluetoothConnect bool
 	WakeOnPlaybackStart    bool
@@ -61,6 +67,11 @@ type Controller struct {
 	powerOffGapMS int
 	powerOffDelay time.Duration
 
+	volumeUpCode    string
+	volumeDownCode  string
+	volumeStepGapMS int
+	maxVolumeSteps  int
+
 	wakeOnBluetoothConnect bool
 	wakeOnPlaybackStart    bool
 
@@ -80,6 +91,8 @@ type sequenceRequest struct {
 	name                 string
 	gapMS                int
 	codes                []string
+	repeatCode           string
+	repeatCount          int
 	skipIfPlaybackActive bool
 }
 
@@ -94,6 +107,11 @@ func OptionsFromConfig(cfg config.Config, sender SequenceSender, logger *log.Log
 		PowerOffCodes: cfg.PowerOffCodes,
 		PowerOffGapMS: cfg.PowerOffGapMS,
 		PowerOffDelay: cfg.PowerOffDelay(),
+
+		VolumeUpCode:    cfg.VolumeUpCode,
+		VolumeDownCode:  cfg.VolumeDownCode,
+		VolumeStepGapMS: cfg.VolumeStepGapMS,
+		MaxVolumeSteps:  cfg.MaxVolumeSteps,
 
 		WakeOnBluetoothConnect: cfg.WakeOnBluetoothConnect,
 		WakeOnPlaybackStart:    cfg.WakeOnPlaybackStart,
@@ -127,6 +145,11 @@ func New(opts Options) *Controller {
 		powerOffCodes: append([]string(nil), opts.PowerOffCodes...),
 		powerOffGapMS: opts.PowerOffGapMS,
 		powerOffDelay: opts.PowerOffDelay,
+
+		volumeUpCode:    opts.VolumeUpCode,
+		volumeDownCode:  opts.VolumeDownCode,
+		volumeStepGapMS: opts.VolumeStepGapMS,
+		maxVolumeSteps:  opts.MaxVolumeSteps,
 
 		wakeOnBluetoothConnect: opts.WakeOnBluetoothConnect,
 		wakeOnPlaybackStart:    opts.WakeOnPlaybackStart,
@@ -270,6 +293,45 @@ func (c *Controller) Off() error {
 	return c.enqueueLocked("off", c.powerOffGapMS, c.powerOffCodes)
 }
 
+func (c *Controller) Volume(direction string, steps int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return ErrClosed
+	}
+	if steps <= 0 {
+		return fmt.Errorf("volume steps must be positive")
+	}
+	if c.maxVolumeSteps <= 0 {
+		return fmt.Errorf("max volume steps is not configured")
+	}
+	if steps > c.maxVolumeSteps {
+		return fmt.Errorf("volume steps %d exceeds max_volume_steps %d", steps, c.maxVolumeSteps)
+	}
+
+	code := ""
+	switch direction {
+	case "up":
+		code = c.volumeUpCode
+	case "down":
+		code = c.volumeDownCode
+	default:
+		return fmt.Errorf("unknown volume direction %q", direction)
+	}
+	if code == "" {
+		return fmt.Errorf("volume %s code is not configured", direction)
+	}
+
+	c.logger.Printf("controller: volume %s requested: steps=%d", direction, steps)
+	req := sequenceRequest{
+		name:        "volume " + direction,
+		gapMS:       c.volumeStepGapMS,
+		repeatCode:  code,
+		repeatCount: steps,
+	}
+	return c.enqueueRequestLocked(req)
+}
+
 func (c *Controller) startPowerOffTimerIfInactiveLocked() {
 	if c.airPlayPlaying || c.bluetoothPlaying {
 		return
@@ -330,7 +392,7 @@ func (c *Controller) enqueueLocked(name string, gapMS int, codes []string) error
 }
 
 func (c *Controller) enqueueRequestLocked(req sequenceRequest) error {
-	if len(req.codes) == 0 {
+	if len(req.codes) == 0 && req.repeatCount == 0 {
 		return fmt.Errorf("%s sequence has no RI codes", req.name)
 	}
 	select {
@@ -355,11 +417,39 @@ func (c *Controller) worker() {
 				c.logger.Printf("controller: skipping queued %s sequence because playback is active", req.name)
 				continue
 			}
+			if req.repeatCount > 0 {
+				c.sendRepeated(req)
+				continue
+			}
 			c.logger.Printf("controller: sending %s sequence", req.name)
 			if err := c.sender.SendSequence(c.ctx, req.gapMS, req.codes); err != nil {
 				c.logger.Printf("controller: %s sequence failed: %v", req.name, err)
 			}
 		}
+	}
+}
+
+func (c *Controller) sendRepeated(req sequenceRequest) {
+	chunkSize := serialri.MaxSequenceCodes
+	if req.gapMS == 0 {
+		chunkSize = 1
+	}
+	remaining := req.repeatCount
+	for remaining > 0 {
+		count := chunkSize
+		if remaining < count {
+			count = remaining
+		}
+		codes := make([]string, count)
+		for i := range codes {
+			codes[i] = req.repeatCode
+		}
+		c.logger.Printf("controller: sending %s sequence chunk: steps=%d remaining=%d", req.name, count, remaining-count)
+		if err := c.sender.SendSequence(c.ctx, req.gapMS, codes); err != nil {
+			c.logger.Printf("controller: %s sequence failed: %v", req.name, err)
+			return
+		}
+		remaining -= count
 	}
 }
 

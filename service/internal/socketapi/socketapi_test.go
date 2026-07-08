@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ func TestValidateRequest(t *testing.T) {
 		{Command: "wake"},
 		{Command: "off"},
 		{Command: "status"},
+		{Command: "volume", Direction: "up", Steps: 1},
+		{Command: "volume", Direction: "down", Steps: 20},
 	}
 	for _, req := range valid {
 		if err := ValidateRequest(req); err != nil {
@@ -31,6 +34,10 @@ func TestValidateRequest(t *testing.T) {
 	invalid := []Request{
 		{},
 		{Command: "bad"},
+		{Command: "volume", Direction: "sideways", Steps: 1},
+		{Command: "volume", Direction: "up"},
+		{Command: "wake", Steps: 1},
+		{Source: "airplay", Event: "inactive", Steps: 1},
 		{Source: "airplay", Event: "connected"},
 		{Source: "airplay", Event: "inactive", Command: "status"},
 	}
@@ -38,6 +45,29 @@ func TestValidateRequest(t *testing.T) {
 		if err := ValidateRequest(req); err == nil {
 			t.Fatalf("ValidateRequest(%#v) succeeded, want error", req)
 		}
+	}
+}
+
+func TestDispatchVolume(t *testing.T) {
+	sender := &recordingSender{ch: make(chan sentSequence, 1)}
+	ctl := controller.New(controller.Options{
+		Sender: sender,
+
+		VolumeUpCode:    "0x002",
+		VolumeDownCode:  "0x003",
+		VolumeStepGapMS: 50,
+		MaxVolumeSteps:  40,
+	})
+	defer ctl.Close()
+	server := NewServer("/tmp/unused.sock", ctl, nil)
+
+	resp := server.Dispatch(Request{Command: "volume", Direction: "down", Steps: 3})
+	if !resp.OK {
+		t.Fatalf("volume response = %#v", resp)
+	}
+	seq := sender.wait(t)
+	if seq.gapMS != 50 || !reflect.DeepEqual(seq.codes, []string{"0x003", "0x003", "0x003"}) {
+		t.Fatalf("sequence = %#v, want volume down", seq)
 	}
 }
 
@@ -117,5 +147,35 @@ func TestFormatStatusHuman(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("status text %q does not contain %q", text, want)
 		}
+	}
+}
+
+type sentSequence struct {
+	gapMS int
+	codes []string
+}
+
+type recordingSender struct {
+	ch chan sentSequence
+}
+
+func (s *recordingSender) SendSequence(ctx context.Context, gapMS int, codes []string) error {
+	seq := sentSequence{gapMS: gapMS, codes: append([]string(nil), codes...)}
+	select {
+	case s.ch <- seq:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *recordingSender) wait(t *testing.T) sentSequence {
+	t.Helper()
+	select {
+	case seq := <-s.ch:
+		return seq
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for sequence")
+		return sentSequence{}
 	}
 }

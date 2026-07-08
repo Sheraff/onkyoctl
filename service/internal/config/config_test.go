@@ -10,6 +10,9 @@ func TestDefaultUsesValidatedHardwareSettings(t *testing.T) {
 	if cfg.WakeGapMS != 200 || len(cfg.WakeCodes) != 2 || cfg.WakeCodes[0] != "0x0D9" || cfg.WakeCodes[1] != "0x020" {
 		t.Fatalf("wake sequence = %d %#v, want tested Line 1 wake sequence", cfg.WakeGapMS, cfg.WakeCodes)
 	}
+	if cfg.VolumeUpCode != "0x002" || cfg.VolumeDownCode != "0x003" || cfg.VolumeStepGapMS != 50 || cfg.MaxVolumeSteps != 40 {
+		t.Fatalf("volume defaults = up %q down %q gap %d max %d", cfg.VolumeUpCode, cfg.VolumeDownCode, cfg.VolumeStepGapMS, cfg.MaxVolumeSteps)
+	}
 }
 
 func TestParseDefaultsAndCanonicalizesCodes(t *testing.T) {
@@ -18,6 +21,8 @@ socket_path = "/tmp/onkyoctl.sock"
 serial_device = "/dev/ttyACM0"
 wake_codes = ["0x0d9", "0X020"]
 wake_gap_ms = 1000
+volume_up_code = "0x2"
+volume_down_code = "0X003"
 wake_on_playback_start = false
 `))
 	if err != nil {
@@ -31,6 +36,9 @@ wake_on_playback_start = false
 	}
 	if cfg.WakeCodes[0] != "0x0D9" || cfg.WakeCodes[1] != "0x020" {
 		t.Fatalf("WakeCodes = %#v, want canonical hex", cfg.WakeCodes)
+	}
+	if cfg.VolumeUpCode != "0x002" || cfg.VolumeDownCode != "0x003" {
+		t.Fatalf("volume codes = %q/%q, want canonical hex", cfg.VolumeUpCode, cfg.VolumeDownCode)
 	}
 	if cfg.WakeOnPlaybackStart {
 		t.Fatalf("WakeOnPlaybackStart = true, want explicit false")
@@ -48,6 +56,28 @@ wake_codes = ["0x1234"]
 `))
 	if err == nil {
 		t.Fatalf("Parse succeeded, want invalid RI code error")
+	}
+}
+
+func TestParseRejectsBadVolumeConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "bad up code", body: `volume_up_code = "2"`},
+		{name: "bad gap", body: `volume_step_gap_ms = -1`},
+		{name: "bad max", body: `max_volume_steps = 0`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(`
+socket_path = "/tmp/onkyoctl.sock"
+serial_device = "/dev/ttyACM0"
+` + tc.body + `
+`))
+			if err == nil {
+				t.Fatalf("Parse succeeded, want volume config error")
+			}
+		})
 	}
 }
 

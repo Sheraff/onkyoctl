@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -49,7 +50,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 1
 		}
 		return 0
-	case "airplay", "bluetooth", "wake", "off", "status":
+	case "airplay", "bluetooth", "wake", "off", "status", "volume":
 		cfg, err := loadClientConfig(configPath, configExplicit)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -166,6 +167,8 @@ func requestFromArgs(args []string) (socketapi.Request, bool, error) {
 			return socketapi.Request{}, false, fmt.Errorf("%s does not accept positional arguments", args[0])
 		}
 		return socketapi.Request{Command: args[0]}, false, nil
+	case "volume":
+		return volumeRequestFromArgs(args)
 	case "status":
 		if len(args) != 1 {
 			return socketapi.Request{}, false, errors.New("status does not accept positional arguments")
@@ -174,6 +177,42 @@ func requestFromArgs(args []string) (socketapi.Request, bool, error) {
 	default:
 		return socketapi.Request{}, false, fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func volumeRequestFromArgs(args []string) (socketapi.Request, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return socketapi.Request{}, false, errors.New("usage: onkyoctl volume up|down [steps] or onkyoctl volume +N|-N")
+	}
+
+	if strings.HasPrefix(args[1], "+") || strings.HasPrefix(args[1], "-") {
+		if len(args) != 2 {
+			return socketapi.Request{}, false, errors.New("usage: onkyoctl volume +N|-N")
+		}
+		steps, err := strconv.Atoi(args[1])
+		if err != nil || steps == 0 {
+			return socketapi.Request{}, false, fmt.Errorf("volume delta must be a non-zero signed integer: %s", args[1])
+		}
+		direction := "up"
+		if steps < 0 {
+			direction = "down"
+			steps = -steps
+		}
+		return socketapi.Request{Command: "volume", Direction: direction, Steps: steps}, false, nil
+	}
+
+	direction := args[1]
+	if direction != "up" && direction != "down" {
+		return socketapi.Request{}, false, fmt.Errorf("volume direction must be up or down: %s", direction)
+	}
+	steps := 1
+	if len(args) == 3 {
+		parsed, err := strconv.Atoi(args[2])
+		if err != nil || parsed <= 0 {
+			return socketapi.Request{}, false, fmt.Errorf("volume steps must be a positive integer: %s", args[2])
+		}
+		steps = parsed
+	}
+	return socketapi.Request{Command: "volume", Direction: direction, Steps: steps}, false, nil
 }
 
 func loadClientConfig(path string, explicit bool) (config.Config, error) {
@@ -233,4 +272,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  onkyoctl airplay playback-start|inactive [--config PATH]")
 	fmt.Fprintln(w, "  onkyoctl bluetooth playback-start|inactive [--config PATH]")
 	fmt.Fprintln(w, "  onkyoctl wake|off|status [--config PATH]")
+	fmt.Fprintln(w, "  onkyoctl volume up|down [steps] [--config PATH]")
+	fmt.Fprintln(w, "  onkyoctl volume +N|-N [--config PATH]")
 }

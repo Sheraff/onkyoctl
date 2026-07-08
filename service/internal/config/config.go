@@ -27,6 +27,11 @@ type Config struct {
 	PowerOffCodes []string `toml:"power_off_codes"`
 	PowerOffGapMS int      `toml:"power_off_gap_ms"`
 
+	VolumeUpCode    string `toml:"volume_up_code"`
+	VolumeDownCode  string `toml:"volume_down_code"`
+	VolumeStepGapMS int    `toml:"volume_step_gap_ms"`
+	MaxVolumeSteps  int    `toml:"max_volume_steps"`
+
 	PowerOffDelaySeconds int `toml:"power_off_delay_seconds"`
 
 	WakeOnBluetoothConnect bool `toml:"wake_on_bluetooth_connect"`
@@ -48,6 +53,11 @@ func Default() Config {
 
 		PowerOffCodes: []string{"0x0DA"},
 		PowerOffGapMS: 250,
+
+		VolumeUpCode:    "0x002",
+		VolumeDownCode:  "0x003",
+		VolumeStepGapMS: 50,
+		MaxVolumeSteps:  40,
 
 		PowerOffDelaySeconds: 120,
 
@@ -117,6 +127,23 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	volumeUpCode, err := validateCode("volume_up_code", c.VolumeUpCode)
+	if err != nil {
+		return err
+	}
+	c.VolumeUpCode = volumeUpCode
+	volumeDownCode, err := validateCode("volume_down_code", c.VolumeDownCode)
+	if err != nil {
+		return err
+	}
+	c.VolumeDownCode = volumeDownCode
+	if c.VolumeStepGapMS < 0 || c.VolumeStepGapMS > serialri.MaxGapMS {
+		return fmt.Errorf("volume_step_gap_ms must be between 0 and %d", serialri.MaxGapMS)
+	}
+	if c.MaxVolumeSteps <= 0 {
+		return fmt.Errorf("max_volume_steps must be positive")
+	}
+
 	return nil
 }
 
@@ -144,6 +171,14 @@ func validateCodes(field string, codes []string) ([]string, error) {
 		canonical = append(canonical, formatted)
 	}
 	return canonical, nil
+}
+
+func validateCode(field string, code string) (string, error) {
+	formatted, err := serialri.CanonicalCode(code)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", field, err)
+	}
+	return formatted, nil
 }
 
 func validateGap(field string, gapMS int, codeCount int) error {

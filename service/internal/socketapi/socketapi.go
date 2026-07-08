@@ -17,9 +17,11 @@ import (
 )
 
 type Request struct {
-	Source  string `json:"source,omitempty"`
-	Event   string `json:"event,omitempty"`
-	Command string `json:"command,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Event     string `json:"event,omitempty"`
+	Command   string `json:"command,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Steps     int    `json:"steps,omitempty"`
 }
 
 type Response struct {
@@ -98,6 +100,8 @@ func (s *Server) Dispatch(req Request) Response {
 			return fromError(s.controller.Wake())
 		case "off":
 			return fromError(s.controller.Off())
+		case "volume":
+			return fromError(s.controller.Volume(req.Direction, req.Steps))
 		case "status":
 			status := s.controller.Status()
 			return Response{OK: true, Status: &status}
@@ -143,10 +147,24 @@ func ValidateRequest(req Request) error {
 	if req.Command != "" {
 		switch req.Command {
 		case "wake", "off", "status":
+			if req.Direction != "" || req.Steps != 0 {
+				return fmt.Errorf("%s command does not accept volume fields", req.Command)
+			}
+			return nil
+		case "volume":
+			if req.Direction != "up" && req.Direction != "down" {
+				return fmt.Errorf("volume direction must be up or down")
+			}
+			if req.Steps <= 0 {
+				return fmt.Errorf("volume steps must be positive")
+			}
 			return nil
 		default:
 			return fmt.Errorf("unknown command %q", req.Command)
 		}
+	}
+	if req.Direction != "" || req.Steps != 0 {
+		return errors.New("volume fields require volume command")
 	}
 	if req.Source == "" || req.Event == "" {
 		return errors.New("source and event are required for source requests")

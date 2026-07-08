@@ -248,6 +248,90 @@ func TestQueuedAutoOffIsSkippedWhenPlaybackRestartsBeforeSend(t *testing.T) {
 	sender.assertNoSequence(t)
 }
 
+func TestVolumeSendsRepeatedCode(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.Volume("up", 3); err != nil {
+		t.Fatalf("Volume returned error: %v", err)
+	}
+	seq := sender.wait(t)
+	if seq.gapMS != 50 || !reflect.DeepEqual(seq.codes, []string{"0x002", "0x002", "0x002"}) {
+		t.Fatalf("sequence = %#v, want three volume-up codes", seq)
+	}
+}
+
+func TestVolumeChunksLargeRequests(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	if err := ctl.Volume("down", 20); err != nil {
+		t.Fatalf("Volume returned error: %v", err)
+	}
+	for _, wantCount := range []int{8, 8, 4} {
+		seq := sender.wait(t)
+		if seq.gapMS != 50 || len(seq.codes) != wantCount {
+			t.Fatalf("sequence = %#v, want %d volume-down codes", seq, wantCount)
+		}
+		for _, code := range seq.codes {
+			if code != "0x003" {
+				t.Fatalf("sequence = %#v, want only volume-down codes", seq)
+			}
+		}
+	}
+}
+
+func TestVolumeWithZeroGapUsesSingleCodeChunks(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := New(Options{
+		Sender: sender,
+
+		VolumeUpCode:    "0x002",
+		VolumeDownCode:  "0x003",
+		VolumeStepGapMS: 0,
+		MaxVolumeSteps:  40,
+
+		AfterFunc: clock.AfterFunc,
+	})
+	defer ctl.Close()
+
+	if err := ctl.Volume("down", 3); err != nil {
+		t.Fatalf("Volume returned error: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		seq := sender.wait(t)
+		if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x003"}) {
+			t.Fatalf("sequence = %#v, want single zero-gap volume-down code", seq)
+		}
+	}
+}
+
+func TestVolumeRejectsInvalidRequests(t *testing.T) {
+	sender := newRecordingSender()
+	clock := &fakeClock{}
+	ctl := newTestController(sender, clock)
+	defer ctl.Close()
+
+	for _, tc := range []struct {
+		direction string
+		steps     int
+	}{
+		{direction: "up", steps: 0},
+		{direction: "down", steps: 41},
+		{direction: "sideways", steps: 1},
+	} {
+		if err := ctl.Volume(tc.direction, tc.steps); err == nil {
+			t.Fatalf("Volume(%q, %d) succeeded, want error", tc.direction, tc.steps)
+		}
+	}
+	sender.assertNoSequence(t)
+}
+
 func newTestController(sender SequenceSender, clock *fakeClock) *Controller {
 	return New(Options{
 		Sender: sender,
@@ -258,6 +342,11 @@ func newTestController(sender SequenceSender, clock *fakeClock) *Controller {
 		PowerOffCodes: []string{"0x0DA"},
 		PowerOffGapMS: 0,
 		PowerOffDelay: time.Minute,
+
+		VolumeUpCode:    "0x002",
+		VolumeDownCode:  "0x003",
+		VolumeStepGapMS: 50,
+		MaxVolumeSteps:  40,
 
 		WakeOnBluetoothConnect: true,
 		WakeOnPlaybackStart:    true,
