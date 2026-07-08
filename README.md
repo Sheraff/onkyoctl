@@ -130,16 +130,16 @@ The firmware is a generic USB serial to Onkyo RI timing adapter. It does not kno
 Startup behavior:
 
 ```text
-READY onkyo-ri seq-v1 safe=0
+READY onkyo-ri seq-v1 safe=1
 ```
 
-The firmware currently builds with development safe mode disabled:
+The firmware currently builds with production safe mode enabled:
 
 ```cpp
-constexpr bool SAFE_MODE = false;
+constexpr bool SAFE_MODE = true;
 ```
 
-Production builds should enable safe mode only after validating the allowlist against the actual A-9010 and recording results in `A9010_RI_CODES.md`.
+Safe mode rejects any RI code outside the validated allowlist recorded in `A9010_RI_CODES.md`.
 
 ## Serial Protocol
 
@@ -407,7 +407,7 @@ sudo HOME="$HOME" timeout 8 arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=1152
 Expected startup line:
 
 ```text
-READY onkyo-ri seq-v1 safe=0
+READY onkyo-ri seq-v1 safe=1
 ```
 
 For local non-root testing, temporary serial access can be granted with:
@@ -605,7 +605,6 @@ Do not rely on public RI tables alone for final automation behavior. Validate co
 ## Remaining Validation
 
 - Confirm the Debian server audio cable remains connected to the validated Line 1 input.
-- Validate remaining optional RI codes such as mute, input-next, and input-previous before relying on them in production safe mode.
+- Validate remaining optional RI codes such as mute, input-next, and input-previous before adding them to production safe mode.
 - Validate Bluetooth `MediaTransport1.State` transitions from the target Android phone.
 - Validate Shairport Sync hook timing with real AirPlay playback.
-- Decide when to enable Arduino safe mode for production firmware.

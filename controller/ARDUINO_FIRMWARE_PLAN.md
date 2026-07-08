@@ -178,26 +178,22 @@ constexpr bool SAFE_MODE = true;
 
 Safe mode uses an allowlist. If any code in a `SEQ` request is not allowlisted, the whole line is rejected before any RI signal is sent.
 
-Volume and mute commands count as safe. Test-mode commands and unknown commands do not count as safe.
+Only tested commands needed for current operation count as production safe. Test-mode commands, unknown commands, and untested optional commands do not count as safe.
 
-Current safe-mode allowlist candidates:
+Current production safe-mode allowlist:
 
 | Code | Meaning |
 | --- | --- |
 | `0x002` | Volume up |
 | `0x003` | Volume down |
-| `0x004` | Power toggle |
-| `0x005` | Mute toggle |
 | `0x020` | Input 1 / CD role |
 | `0x02F` | Power on / Input 1 role |
-| `0x0D5` | Next input |
-| `0x0D6` | Previous input |
 | `0x0D9` | Power on |
 | `0x0DA` | Power off |
 | `0x0E0` | Input 3 |
 | `0x170` | Input 2 / Dock role |
 
-Codes such as `0x0E3`, `0x0FB`, `0x17F`, and `0x503` should remain out of the production allowlist until they are both useful and recorded as safe. `0x0FB` was tested and turns the amplifier on, but it did not switch line input for this A-9010.
+Codes such as `0x004`, `0x005`, `0x0D5`, `0x0D6`, `0x0E3`, `0x0FB`, `0x17F`, and `0x503` should remain out of the production allowlist until they are both useful and recorded as safe. `0x0FB` was tested and turns the amplifier on, but it did not switch line input for this A-9010.
 
 Expected combined input candidates to test:
 

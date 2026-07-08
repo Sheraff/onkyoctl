@@ -7,8 +7,8 @@
 constexpr uint8_t RI_PIN = 10;
 constexpr unsigned long SERIAL_BAUD = 115200;
 
-// Set to true for production builds after the allowlist has been validated.
-constexpr bool SAFE_MODE = false;
+// Production builds reject any RI code outside the validated allowlist.
+constexpr bool SAFE_MODE = true;
 
 constexpr size_t MAX_LINE_LENGTH = 96;
 constexpr uint8_t MAX_SEQUENCE_CODES = 8;
@@ -17,12 +17,8 @@ constexpr uint16_t MAX_DELAY_MS = 10000;
 constexpr uint16_t SAFE_CODES[] = {
   0x002, // Volume up
   0x003, // Volume down
-  0x004, // Power toggle
-  0x005, // Mute toggle
   0x020, // Input 1 / CD role
   0x02F, // Power on / Input 1 role
-  0x0D5, // Next input
-  0x0D6, // Previous input
   0x0D9, // Power on
   0x0DA, // Power off
   0x0E0, // Input 3
