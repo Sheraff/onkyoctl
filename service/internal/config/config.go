@@ -39,12 +39,12 @@ func Default() Config {
 	return Config{
 		SocketPath: "/run/onkyoctl/onkyoctl.sock",
 
-		SerialDevice:      "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0",
+		SerialDevice:      "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
 		SerialBaud:        115200,
 		SerialOpenDelayMS: 7000,
 
-		WakeCodes: []string{"0x02F"},
-		WakeGapMS: 1000,
+		WakeCodes: []string{"0x0D9", "0x020"},
+		WakeGapMS: 200,
 
 		PowerOffCodes: []string{"0x0DA"},
 		PowerOffGapMS: 250,

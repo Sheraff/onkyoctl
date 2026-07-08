@@ -23,7 +23,9 @@ constexpr uint16_t SAFE_CODES[] = {
   0x02F, // Power on / Input 1 role
   0x0D5, // Next input
   0x0D6, // Previous input
+  0x0D9, // Power on
   0x0DA, // Power off
+  0x0E0, // Input 3
   0x170, // Input 2 / Dock role
 };
 

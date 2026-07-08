@@ -17,16 +17,19 @@ Arduino Nano V3, ATmega328P, 5V / 16 MHz
 RI wiring:
 
 ```text
-Arduino D10 -> 1 kOhm resistor -> RI plug tip
-Arduino GND ---------------------> RI plug sleeve
-Arduino D10 / RI tip node -> 47k-100k pulldown -> GND
+Arduino D10 -> 1 kOhm resistor -> RI plug tip (DATA)
+Arduino GND ---------------------> RI plug sleeve (GND)
+RI plug tip (DATA) -> 47k-100k pulldown -> Arduino GND
+TRS/stereo plug ring, if present -> RI plug sleeve / Arduino GND
 ```
 
 Do not connect Arduino 5V directly to the RI jack.
 
-Use the weak pulldown to keep the RI line idle while D10 is high-impedance during reset/bootloader, before `setup()` configures the pin as an output and drives it LOW.
+Use a 3.5 mm mono TS plug if possible. Public RI wiring references use tip as data and sleeve as ground; if using a TRS/stereo plug, tie ring to sleeve/GND instead of leaving it floating.
 
-The initial implementation drives D10 as a normal push-pull output: actively LOW for idle, actively HIGH for RI pulses. This matches the public Arduino RI examples and is appropriate when the Arduino is the only RI sender connected to the A-9010.
+Use the weak pulldown on the RI tip side of the 1 kOhm series resistor to keep the RI line idle while D10 is high-impedance during reset/bootloader, before `setup()` configures the pin as an output and drives it LOW.
+
+The initial implementation drives D10 as a normal push-pull output: actively LOW for idle, actively HIGH for RI pulses. This matches the public Arduino RI examples and is appropriate when the Arduino is the only external RI sender connected to the A-9010.
 
 If other Onkyo RI devices are connected to the same RI bus, revisit the electrical design before final build. Multiple active drivers on one RI data line can fight each other if one drives HIGH while another drives LOW.
 
@@ -71,18 +74,18 @@ SEQ <delay_ms> <code> [<code> ...]\n
 Examples:
 
 ```text
-SEQ 0 0x02F
-SEQ 1000 0x0D9 0x020
+SEQ 200 0x0D9 0x020
+SEQ 0 0x170
 SEQ 250 0x0DA
 ```
 
 Meaning of this command:
 
 ```text
-SEQ 1000 0x0D9 0x020
+SEQ 200 0x0D9 0x020
 ```
 
-Send `0x0D9`, wait `1000 ms`, then send `0x020`.
+Send `0x0D9`, wait `200 ms`, then send `0x020`.
 
 Parsing rules:
 
@@ -118,8 +121,8 @@ The firmware prints `OK` only after the full sequence has been played over RI.
 Successful responses echo the normalized full sequence:
 
 ```text
-OK SEQ 0 0x02F
-OK SEQ 1000 0x0D9 0x020
+OK SEQ 200 0x0D9 0x020
+OK SEQ 0 0x170
 OK SEQ 250 0x0DA
 ```
 
@@ -155,7 +158,7 @@ Trailer: 1000 us HIGH, then LOW
 Gap:     20 ms after each RI message
 ```
 
-The sequence delay is an additional pause between complete RI messages. For example, `SEQ 1000 0x0D9 0x020` sends `0x0D9`, completes the normal RI trailer and 20 ms gap, waits `1000 ms`, then sends `0x020`.
+The sequence delay is an additional pause between complete RI messages. For example, `SEQ 200 0x0D9 0x020` sends `0x0D9`, completes the normal RI trailer and 20 ms gap, waits `200 ms`, then sends `0x020`.
 
 ## Safe Mode
 
@@ -177,7 +180,7 @@ Safe mode uses an allowlist. If any code in a `SEQ` request is not allowlisted, 
 
 Volume and mute commands count as safe. Test-mode commands and unknown commands do not count as safe.
 
-Initial candidate allowlist, pending validation on the actual A-9010:
+Current safe-mode allowlist candidates:
 
 | Code | Meaning |
 | --- | --- |
@@ -189,17 +192,19 @@ Initial candidate allowlist, pending validation on the actual A-9010:
 | `0x02F` | Power on / Input 1 role |
 | `0x0D5` | Next input |
 | `0x0D6` | Previous input |
+| `0x0D9` | Power on |
 | `0x0DA` | Power off |
+| `0x0E0` | Input 3 |
 | `0x170` | Input 2 / Dock role |
 
-Codes such as `0x0D9`, `0x0E0`, `0x0E3`, `0x0FB`, `0x17F`, and `0x503` should remain out of the production allowlist until tested on the real amplifier and recorded as safe.
+Codes such as `0x0E3`, `0x0FB`, `0x17F`, and `0x503` should remain out of the production allowlist until they are both useful and recorded as safe. `0x0FB` was tested and turns the amplifier on, but it did not switch line input for this A-9010.
 
 Expected combined input candidates to test:
 
 | Code | Candidate Meaning |
 | --- | --- |
-| `0x02F` | Turn on + Input Line 1 / CD role |
-| `0x0FB` | Turn on + Input Line 2 candidate |
+| `0x02F` | Turns on, but does not select Line 1 on this A-9010 |
+| `0x0FB` | Turns on, but does not switch line input on this A-9010 |
 | `0x17F` | Turn on + Input Line 3 candidate |
 
 ## Debian Service Interaction
@@ -209,20 +214,17 @@ The Debian service sends raw hex RI sequences over serial.
 Example policies expressible by the service:
 
 ```text
-Power on using combined Line 1 candidate:
-SEQ 0 0x02F
-
 Power on then select Line 1 explicitly:
-SEQ 1000 0x0D9 0x020
+SEQ 200 0x0D9 0x020
+
+Select Line 2:
+SEQ 0 0x170
+
+Select Line 3:
+SEQ 0 0x0E0
 
 Power off:
 SEQ 0 0x0DA
-
-Experimental turn on + Line 2:
-SEQ 0 0x0FB
-
-Experimental turn on + Line 3:
-SEQ 0 0x17F
 ```
 
 The Arduino does not know whether a code means power, input, mute, or volume except for optional safe-mode allowlisting.

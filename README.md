@@ -154,8 +154,8 @@ SEQ <delay_ms> <code> [<code> ...]\n
 Examples:
 
 ```text
-SEQ 0 0x02F
-SEQ 1000 0x0D9 0x020
+SEQ 200 0x0D9 0x020
+SEQ 0 0x170
 SEQ 250 0x0DA
 ```
 
@@ -170,8 +170,8 @@ Rules:
 Representative responses:
 
 ```text
-OK SEQ 0 0x02F
-OK SEQ 1000 0x0D9 0x020
+OK SEQ 200 0x0D9 0x020
+OK SEQ 0 0x170
 ERR BAD_CODE 0x1234
 ERR ZERO_DELAY_MULTI_CODE
 ```
@@ -187,12 +187,12 @@ Current defaults:
 ```toml
 socket_path = "/run/onkyoctl/onkyoctl.sock"
 
-serial_device = "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0"
+serial_device = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 serial_baud = 115200
 serial_open_delay_ms = 7000
 
-wake_codes = ["0x02F"]
-wake_gap_ms = 1000
+wake_codes = ["0x0D9", "0x020"]
+wake_gap_ms = 200
 
 power_off_codes = ["0x0DA"]
 power_off_gap_ms = 250
@@ -212,7 +212,7 @@ Important policy decisions:
 - Playback wake is intentionally repeated on each playback start.
 - Power-off is delayed until both AirPlay and Bluetooth playback are inactive.
 - Automation should use discrete/idempotent RI codes, not the power toggle `0x004`.
-- If `0x02F` does not select the desired input, use a configured sequence such as `wake_codes = ["0x0D9", "0x020"]` with `wake_gap_ms = 1000` after validating those codes.
+- Actual A-9010 testing showed that `0x02F` turns the amplifier on but does not select Line 1, so the default wake sequence is `wake_codes = ["0x0D9", "0x020"]` with `wake_gap_ms = 200`.
 
 Tracked service state:
 
@@ -302,12 +302,13 @@ Use a normal Onkyo line-level input such as `LINE`, `CD`, or `TUNER`. Do not use
 RI wiring:
 
 ```text
-Arduino D10 -> 1 kOhm resistor -> RI plug tip
-Arduino GND ---------------------> RI plug sleeve
-Arduino D10 / RI tip node -> 47k-100k pulldown -> GND
+Arduino D10 -> 1 kOhm resistor -> RI plug tip (DATA)
+Arduino GND ---------------------> RI plug sleeve (GND)
+RI plug tip (DATA) -> 47k-100k pulldown -> Arduino GND
+TRS/stereo plug ring, if present -> RI plug sleeve / Arduino GND
 ```
 
-Do not connect Arduino 5V directly to the RI jack. The weak pulldown keeps the RI line idle while D10 is high-impedance during reset/bootloader, before firmware drives it LOW. The firmware currently drives D10 as a normal push-pull output, which is appropriate only when the Arduino is the only RI sender on that RI line. Revisit the electrical design before sharing the RI bus with other Onkyo RI devices.
+Use a 3.5 mm mono TS plug if possible. Public RI wiring references use tip as data and sleeve as ground; if using a TRS/stereo plug, tie ring to sleeve/GND instead of leaving it floating. Do not connect Arduino 5V directly to the RI jack. The weak pulldown belongs on the RI tip side of the 1 kOhm series resistor and keeps the RI line idle while D10 is high-impedance during reset/bootloader, before firmware drives it LOW. The A-9010 service schematic labels this jack as RI-IN/OUT and shows input protection/conditioning including a 5.6 V zener clamp; with the 1 kOhm series resistor, a 5 V Nano output is current-limited to about 5 mA in a clamp/fault case. The firmware currently drives D10 as a normal push-pull output, which is appropriate only when the Arduino is the only external RI sender on that RI line. Revisit the electrical design before sharing the RI bus with other Onkyo RI devices.
 
 ## Known Target Environment
 
@@ -355,9 +356,237 @@ onkyoctl wake
 onkyoctl off
 ```
 
+## Flash, Install, And Update
+
+### Arduino Firmware Flashing
+
+Install the Arduino AVR core once:
+
+```bash
+arduino-cli core install arduino:avr
+```
+
+Find the connected Nano:
+
+```bash
+arduino-cli board list
+```
+
+The tested controller appeared as `/dev/ttyUSB0` with a CH340 USB serial adapter. Its stable by-id path is:
+
+```text
+/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+```
+
+Compile the firmware:
+
+```bash
+arduino-cli compile --fqbn arduino:avr:nano --output-dir dist/controller controller
+```
+
+Upload it:
+
+```bash
+sudo HOME="$HOME" arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano controller
+```
+
+If upload fails with an `avrdude` / `stk500` sync error on a Nano clone, retry with the old bootloader target:
+
+```bash
+sudo HOME="$HOME" arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano:cpu=atmega328old controller
+```
+
+The `HOME="$HOME"` part keeps `arduino-cli` using the Arduino core installed under the normal user account when the upload itself is run with `sudo` for serial-port access.
+
+Verify the flashed firmware:
+
+```bash
+sudo HOME="$HOME" timeout 8 arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=115200
+```
+
+Expected startup line:
+
+```text
+READY onkyo-ri seq-v1 safe=0
+```
+
+For local non-root testing, temporary serial access can be granted with:
+
+```bash
+sudo chmod a+rw /dev/ttyUSB0
+```
+
+Restore the normal device-node permissions afterwards:
+
+```bash
+sudo chmod 660 /dev/ttyUSB0
+```
+
+The installed systemd service currently runs as root, so this temporary chmod is not needed for normal daemon operation.
+
+### Daemon Installation
+
+Build and install the Go binary, config, and systemd unit:
+
+```bash
+make check
+make build-go
+sudo install -m 0755 dist/service/onkyoctl /usr/local/bin/onkyoctl
+sudo install -d -m 0755 /etc/onkyoctl
+sudo install -m 0644 service/configs/config.example.toml /etc/onkyoctl/config.toml
+sudo install -m 0644 service/packaging/systemd/onkyo-controller.service /etc/systemd/system/onkyo-controller.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now onkyo-controller.service
+```
+
+Check the service:
+
+```bash
+systemctl status onkyo-controller.service
+sudo journalctl -u onkyo-controller.service -f
+```
+
+Manual daemon smoke test:
+
+```bash
+onkyoctl status
+onkyoctl wake
+onkyoctl off
+```
+
+The installed `/etc/onkyoctl/config.toml` should include the validated A-9010 defaults:
+
+```toml
+serial_device = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+
+wake_codes = ["0x0D9", "0x020"]
+wake_gap_ms = 200
+
+power_off_codes = ["0x0DA"]
+power_off_gap_ms = 250
+
+wake_on_bluetooth_connect = true
+wake_on_playback_start = true
+bluetooth_use_transport_state = true
+```
+
+### Shairport Sync Integration
+
+Edit the Shairport Sync config:
+
+```bash
+sudoedit /etc/shairport-sync.conf
+```
+
+Add or update the `sessioncontrol` block:
+
+```conf
+sessioncontrol =
+{
+  active_state_timeout = 60.0;
+  run_this_before_play_begins = "/usr/local/bin/onkyoctl airplay playback-start";
+  run_this_after_exiting_active_state = "/usr/local/bin/onkyoctl airplay inactive";
+  wait_for_completion = "no";
+};
+```
+
+Restart Shairport Sync:
+
+```bash
+sudo systemctl restart shairport-sync.service
+```
+
+Watch daemon logs while starting and stopping AirPlay playback:
+
+```bash
+sudo journalctl -u onkyo-controller.service -f
+```
+
+### Bluetooth Integration
+
+No external Bluetooth hook is required. The daemon watches BlueZ on the system D-Bus when these config values are enabled:
+
+```toml
+wake_on_bluetooth_connect = true
+bluetooth_use_transport_state = true
+```
+
+Confirm the relevant services are running:
+
+```bash
+systemctl status bluetooth.service
+systemctl status bluealsa.service
+systemctl status onkyo-controller.service
+```
+
+Pair and trust only known Bluetooth devices, then connect and play audio from the phone. Watch the daemon logs:
+
+```bash
+sudo journalctl -u onkyo-controller.service -f
+```
+
+Expected log shape:
+
+```text
+controller: Bluetooth connected
+controller: Bluetooth playback started
+serial send: SEQ 200 0x0D9 0x020
+controller: Bluetooth playback inactive
+controller: power-off timer started for 2m0s
+```
+
+### Updating An Existing Install
+
+When only Go service source code changes, rebuild, reinstall the binary, and restart the service:
+
+```bash
+make check
+make build-go
+sudo install -m 0755 dist/service/onkyoctl /usr/local/bin/onkyoctl
+sudo systemctl restart onkyo-controller.service
+systemctl status onkyo-controller.service
+```
+
+When `service/packaging/systemd/onkyo-controller.service` changes, reinstall the unit and reload systemd:
+
+```bash
+sudo install -m 0644 service/packaging/systemd/onkyo-controller.service /etc/systemd/system/onkyo-controller.service
+sudo systemctl daemon-reload
+sudo systemctl restart onkyo-controller.service
+```
+
+When config defaults change in `service/configs/config.example.toml`, merge the changes into the live config instead of blindly overwriting local settings:
+
+```bash
+sudoedit /etc/onkyoctl/config.toml
+sudo systemctl restart onkyo-controller.service
+```
+
+Only overwrite the live config if that is intentional:
+
+```bash
+sudo install -m 0644 service/configs/config.example.toml /etc/onkyoctl/config.toml
+sudo systemctl restart onkyo-controller.service
+```
+
+When Arduino firmware changes, stop the daemon first because it keeps the serial port open:
+
+```bash
+sudo systemctl stop onkyo-controller.service
+arduino-cli compile --fqbn arduino:avr:nano --output-dir dist/controller controller
+sudo HOME="$HOME" arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano controller
+sudo systemctl start onkyo-controller.service
+```
+
+If the board requires the old Nano bootloader, use the old-bootloader FQBN for the upload command:
+
+```bash
+sudo HOME="$HOME" arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano:cpu=atmega328old controller
+```
+
 ## RI Codes
 
-The current default wake candidate is `0x02F`; the current default power-off candidate is `0x0DA`.
+The current default wake sequence is `SEQ 200 0x0D9 0x020`; the current default power-off command is `SEQ 0 0x0DA`.
 
 Known and candidate A-9010 codes are tracked in `A9010_RI_CODES.md`. That table records whether each code is part of the current safe-mode candidate list and whether it has been tested on the actual amplifier.
 
@@ -375,9 +604,8 @@ Do not rely on public RI tables alone for final automation behavior. Validate co
 
 ## Remaining Validation
 
-- Confirm the exact Onkyo input used by the Debian server audio cable.
-- Validate `0x02F` on the actual A-9010, including whether it powers on and selects the desired input.
-- If needed, validate a multi-code wake sequence such as `0x0D9` plus an input code.
+- Confirm the Debian server audio cable remains connected to the validated Line 1 input.
+- Validate remaining optional RI codes such as mute, input-next, and input-previous before relying on them in production safe mode.
 - Validate Bluetooth `MediaTransport1.State` transitions from the target Android phone.
 - Validate Shairport Sync hook timing with real AirPlay playback.
 - Decide when to enable Arduino safe mode for production firmware.

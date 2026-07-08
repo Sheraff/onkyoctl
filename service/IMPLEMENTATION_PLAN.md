@@ -61,12 +61,12 @@ Example shape:
 ```toml
 socket_path = "/run/onkyoctl/onkyoctl.sock"
 
-serial_device = "/dev/serial/by-id/usb-Arduino_Nano_OnkyoRI-if00-port0"
+serial_device = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 serial_baud = 115200
 serial_open_delay_ms = 7000
 
-wake_codes = ["0x02F"]
-wake_gap_ms = 1000
+wake_codes = ["0x0D9", "0x020"]
+wake_gap_ms = 200
 
 power_off_codes = ["0x0DA"]
 power_off_gap_ms = 250
@@ -79,11 +79,11 @@ wake_on_playback_start = true
 bluetooth_use_transport_state = true
 ```
 
-If real A-9010 testing shows that `0x02F` does not select the desired input, switch to an explicit sequence:
+Real A-9010 testing showed that `0x02F` turns the amplifier on but does not select Line 1, so the default wake policy uses an explicit sequence:
 
 ```toml
 wake_codes = ["0x0D9", "0x020"]
-wake_gap_ms = 1000
+wake_gap_ms = 200
 ```
 
 The key rule is that configured wake codes must be discrete or idempotent. Do not use `0x004` for automation because it is a power toggle.
@@ -101,8 +101,8 @@ SEQ <delay_ms> <code> [<code>...]\n
 Examples:
 
 ```text
-SEQ 0 0x02F\n
-SEQ 1000 0x0D9 0x020\n
+SEQ 200 0x0D9 0x020\n
+SEQ 0 0x170\n
 SEQ 250 0x0DA\n
 ```
 
@@ -119,8 +119,8 @@ Rules:
 Expected Arduino responses:
 
 ```text
-OK SEQ 0 0x02F
-OK SEQ 1000 0x0D9 0x020
+OK SEQ 200 0x0D9 0x020
+OK SEQ 0 0x170
 ERR BAD_CODE 0x1234
 ERR BAD_DELAY
 ERR TOO_MANY_CODES
@@ -129,7 +129,7 @@ ERR BAD_COMMAND
 
 The service must serialize access to the serial port. Only one `SEQ` request may be in flight at a time. It should wait for `OK` or `ERR` before sending another sequence. A successful `OK` means the Arduino accepted and emitted the RI sequence; it does not mean the amplifier received or acted on it.
 
-The serial response timeout should account for RI waveform duration, configured inter-code gaps, and margin. For example, `SEQ 1000 0x0D9 0x020` should comfortably complete within a 3-5 second timeout.
+The serial response timeout should account for RI waveform duration, configured inter-code gaps, and margin. For example, `SEQ 200 0x0D9 0x020` should comfortably complete within a 3-5 second timeout.
 
 ## Event Policy
 
@@ -350,10 +350,7 @@ go build ./cmd/onkyoctl
 ./onkyoctl off
 ```
 
-Hardware validation should confirm:
+Hardware validation has confirmed the default RI wake and off codes. Remaining hardware validation should confirm:
 
-- `0x02F` behavior on this A-9010.
-- Whether `0x02F` selects the desired physical input.
-- Whether `0x0D9` plus input code is needed instead.
 - Bluetooth `MediaTransport1.State` transitions from the Pixel 6.
 - AirPlay Shairport hooks fire at the expected times.

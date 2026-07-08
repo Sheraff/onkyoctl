@@ -2,6 +2,16 @@ package config
 
 import "testing"
 
+func TestDefaultUsesValidatedHardwareSettings(t *testing.T) {
+	cfg := Default()
+	if cfg.SerialDevice != "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0" {
+		t.Fatalf("SerialDevice = %q, want tested CH340 by-id path", cfg.SerialDevice)
+	}
+	if cfg.WakeGapMS != 200 || len(cfg.WakeCodes) != 2 || cfg.WakeCodes[0] != "0x0D9" || cfg.WakeCodes[1] != "0x020" {
+		t.Fatalf("wake sequence = %d %#v, want tested Line 1 wake sequence", cfg.WakeGapMS, cfg.WakeCodes)
+	}
+}
+
 func TestParseDefaultsAndCanonicalizesCodes(t *testing.T) {
 	cfg, err := Parse([]byte(`
 socket_path = "/tmp/onkyoctl.sock"

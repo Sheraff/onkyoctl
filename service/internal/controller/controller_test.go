@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+var testWakeCodes = []string{"0x0D9", "0x020"}
+
+const testWakeGapMS = 200
+
 func TestBluetoothConnectSendsWakeAndStartsPowerOffTimerWithoutMarkingPlaybackActive(t *testing.T) {
 	sender := newRecordingSender()
 	clock := &fakeClock{}
@@ -17,7 +21,7 @@ func TestBluetoothConnectSendsWakeAndStartsPowerOffTimerWithoutMarkingPlaybackAc
 		t.Fatalf("BluetoothConnected returned error: %v", err)
 	}
 	seq := sender.wait(t)
-	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+	if seq.gapMS != testWakeGapMS || !reflect.DeepEqual(seq.codes, testWakeCodes) {
 		t.Fatalf("sequence = %#v, want wake", seq)
 	}
 
@@ -234,11 +238,11 @@ func TestQueuedAutoOffIsSkippedWhenPlaybackRestartsBeforeSend(t *testing.T) {
 
 	sender.releaseFirst()
 	seq := sender.wait(t)
-	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+	if seq.gapMS != testWakeGapMS || !reflect.DeepEqual(seq.codes, testWakeCodes) {
 		t.Fatalf("first sequence = %#v, want initial wake", seq)
 	}
 	seq = sender.wait(t)
-	if seq.gapMS != 0 || !reflect.DeepEqual(seq.codes, []string{"0x02F"}) {
+	if seq.gapMS != testWakeGapMS || !reflect.DeepEqual(seq.codes, testWakeCodes) {
 		t.Fatalf("second sequence = %#v, want restart wake", seq)
 	}
 	sender.assertNoSequence(t)
@@ -248,8 +252,8 @@ func newTestController(sender SequenceSender, clock *fakeClock) *Controller {
 	return New(Options{
 		Sender: sender,
 
-		WakeCodes: []string{"0x02F"},
-		WakeGapMS: 0,
+		WakeCodes: testWakeCodes,
+		WakeGapMS: testWakeGapMS,
 
 		PowerOffCodes: []string{"0x0DA"},
 		PowerOffGapMS: 0,
